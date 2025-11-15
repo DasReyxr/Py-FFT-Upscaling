@@ -3,7 +3,6 @@
 --------- Auf Das ---------
 --------- FFT II ----------
 -------- 08/11/2025 -------
-path\Python313\site-packages\customtkinter\assets\themes\pink.json
 """
 # ------- Main Library -------
 import customtkinter as ctk
