@@ -13,6 +13,8 @@ import threading
 import os
 from ProyectoFFT import generate_fft_report_safe
 
+PINK_PATH_PHOTO = r"C:\Users\dasre\Wkn\Python\PY1 Upscaling\HK.jpg"
+PINK_PATH_THEME = r"C:\Users\dasre\Wkn\Python\PY1 Upscaling\pink.json"
 
 # ---------- Class ----------
 class FFTGui(ctk.CTk):
@@ -23,8 +25,8 @@ class FFTGui(ctk.CTk):
         self.title("FFT Resizer GUI")
         self.geometry("520x560")
         ctk.set_appearance_mode("dark")  # initial mode
-        ctk.set_default_color_theme("pink")
-
+        
+        ctk.ThemeManager.load_theme(PINK_PATH_THEME)
         # --- Track appearance mode ---
         self.current_mode = "dark"
         self.configure(fg_color="#272727") 
@@ -87,7 +89,7 @@ class FFTGui(ctk.CTk):
         self.mode_switch.pack(pady=(10, 15))
 
         # --- Hello Kitty background image (hidden by default) ---
-        image_path = os.path.join(os.path.dirname(__file__), "HK.jpg")  # or .png
+        image_path = os.path.join(os.path.dirname(__file__), PINK_PATH_PHOTO) 
         if os.path.exists(image_path):
             self.bg_image = ctk.CTkImage(light_image=Image.open(image_path),
                                         dark_image=Image.open(image_path),
@@ -100,7 +102,6 @@ class FFTGui(ctk.CTk):
 
 
     # ===================== Logic =====================
-
     def select_input(self):
         folder = filedialog.askdirectory()
         if folder:
