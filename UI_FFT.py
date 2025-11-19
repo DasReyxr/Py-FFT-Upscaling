@@ -13,8 +13,8 @@ import threading
 import os
 from ProyectoFFT import generate_fft_report_safe
 
-PINK_PATH_PHOTO = r"C:\Users\dasre\Wkn\Python\PY1 Upscaling\HK.jpg"
-PINK_PATH_THEME = r"C:\Users\dasre\Wkn\Python\PY1 Upscaling\pink.json"
+PINK_PATH_PHOTO = r"C:\Users\dasre\Documents\Knowledge-db\ghFiles\pycodes\RayProject\Py-FFT-Upscaling\HK.jpg"
+PINK_PATH_THEME = r"C:\Users\dasre\Documents\Knowledge-db\ghFiles\pycodes\RayProject\Py-FFT-Upscaling\pink.json"
 
 # ---------- Class ----------
 class FFTGui(ctk.CTk):

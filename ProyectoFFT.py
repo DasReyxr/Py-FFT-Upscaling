@@ -26,7 +26,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 # -------- Variables --------
 MAX_PIXELS = 3_000_000     # máximo número de píxeles permitidos en la FFT final (seguro)
 MAX_DIM = 1024             # si la mayor dimensión > MAX_DIM, downsampreamos la imagen antes de procesar
-TMP_DIR = "tmp_fft_safe"   # carpeta temporal para imágenes usadas en el PDF
+TMP_DIR = r"C:\Users\dasre\Documents\Knowledge-db\ghFiles\pycodes\tmp_fft_safe"   # carpeta temporal para imágenes usadas en el PDF
 
 
 # --------- Function ---------
@@ -74,82 +74,51 @@ def compute_safe_scale(h, w, requested_scale):
 
     return max_scale, True
 
-
-def fft_resize_and_save_plots(img, scale, tmp_dir, basename_label):
-    """
-    Procesa UNA imagen (numpy float32), aplica FFT-resize con seguridad,
-    guarda 3 PNGs en tmp_dir: spectrum_before, spectrum_after, comparison.
-    Devuelve (resized_image_path, spectrum_before_path, spectrum_after_path, note)
-    """
+def fft_resize_and_save(img, scale, tmp_dir, basename_label):
     note = ""
-    # 1) Downsample input if too large (para evitar FFT enormes)
     img_proc, input_downscale = safe_downsample_image_if_needed(img)
     if input_downscale != 1.0:
         note += f"Input downsampled x{input_downscale:.3f} para seguridad. "
 
     h, w = img_proc.shape[:2]
 
-    # 2) Calcular scale seguro
     eff_scale, was_capped = compute_safe_scale(h, w, scale)
     if was_capped:
         note += f"Scale pedido {scale} fue capado a {eff_scale:.4f} para evitar OOM. "
 
-    # Asegurar new dims válidos
     new_h = max(2, int(round(h * eff_scale)))
     new_w = max(2, int(round(w * eff_scale)))
 
-    # Preparar paths
-    spec_before_path = os.path.join(tmp_dir, f"spec_before_{basename_label}.png")
-    spec_after_path = os.path.join(tmp_dir, f"spec_after_{basename_label}.png")
-    comp_path = os.path.join(tmp_dir, f"comp_{basename_label}.png")
-    resized_path = os.path.join(tmp_dir, f"resized_{basename_label}.png")
+    resized_path = os.path.join(tmp_dir, f"{basename_label}_resized_.png")
 
-    # 3) Procesar por canal (sin mantener grandes arrays más de lo necesario)
     if img_proc.ndim == 2:
         img_proc = img_proc[:, :, None]
 
     ch = img_proc.shape[2]
-
-    # tomamos solo el primer canal para espectros (suficiente para visual)
     channel0 = img_proc[:, :, 0]
 
-    # FFT original (centro)
     F = np.fft.fftshift(np.fft.fft2(channel0))
-    spec_before = np.log1p(np.abs(F))
-    # Normalizar espectro para guardarlo
-    spec_before_norm = (spec_before - spec_before.min()) / (spec_before.max() - spec_before.min() + 1e-12)
 
-    # Construir F_new según upscale / downscale (pero sin crear matrices inmensas)
     if eff_scale >= 1.0:
-        # UPSCALE → zero-pad: creamos F_new de tamaño razonable (ya capado)
         F_new = np.zeros((new_h, new_w), dtype=complex)
         h1 = new_h // 2 - h // 2
         w1 = new_w // 2 - w // 2
-        # insertar F (centro)
         F_new[h1:h1 + h, w1:w1 + w] = F
     else:
-        # DOWNSCALE → recortar el espectro
         crop_h = new_h // 2
         crop_w = new_w // 2
         center_h = h // 2
         center_w = w // 2
-        # asegurar índices válidos
         r0 = max(0, center_h - crop_h)
         r1 = min(h, center_h + crop_h)
         c0 = max(0, center_w - crop_w)
         c1 = min(w, center_w + crop_w)
         F_new = F[r0:r1, c0:c1]
 
-    # Espectro after
-    spec_after = np.log1p(np.abs(F_new))
-    spec_after_norm = (spec_after - spec_after.min()) / (spec_after.max() - spec_after.min() + 1e-12)
-
-    # Reconstrucción (IFFT)
     resized_channels = []
     for c in range(ch):
-        ch_arr = img_proc[:, :, c]
-        # repetir transformada para cada canal (evitamos guardar F de todos los canales juntos)
-        Fc = np.fft.fftshift(np.fft.fft2(ch_arr))
+        Fc = np.fft.fftshift(np.fft.fft2(img_proc[:, :, c]))
+
         if eff_scale >= 1.0:
             F_big = np.zeros((new_h, new_w), dtype=complex)
             h1 = new_h // 2 - h // 2
@@ -171,57 +140,15 @@ def fft_resize_and_save_plots(img, scale, tmp_dir, basename_label):
         rec = np.abs(rec)
         if rec.max() > 0:
             rec = rec * (255.0 / rec.max())
-        else:
-            rec = rec
         resized_channels.append(rec.astype(np.uint8))
 
-        # liberar variables grandes por canal
-        del Fc
-        gc.collect()
-
     resized_img = np.stack(resized_channels, axis=2).astype(np.uint8)
-
-    # 4) Guardar imágenes temporales (espectros normalizados y comparación)
-    # spectrum images (escaladas a 0-255)
-    plt.figure(figsize=(4, 4))
-    plt.imshow((spec_before_norm * 255).astype(np.uint8), cmap='magma')
-    plt.title("Espectro original")
-    plt.axis('off')
-    plt.tight_layout()
-    plt.savefig(spec_before_path, dpi=150)
-    plt.close('all')
-
-    plt.figure(figsize=(4, 4))
-    plt.imshow((spec_after_norm * 255).astype(np.uint8), cmap='magma')
-    plt.title("Espectro transformado")
-    plt.axis('off')
-    plt.tight_layout()
-    plt.savefig(spec_after_path, dpi=150)
-    plt.close('all')
-
-    # comparison
-    plt.figure(figsize=(6, 4))
-    plt.subplot(1, 2, 1)
-    plt.title("Original")
-    plt.imshow(img_proc.astype(np.uint8))
-    plt.axis('off')
-    plt.subplot(1, 2, 2)
-    plt.title(f"Scale {scale} (eff {eff_scale:.4f})")
-    plt.imshow(resized_img)
-    plt.axis('off')
-    plt.tight_layout()
-    plt.savefig(comp_path, dpi=150)
-    plt.close('all')
-
-    # guardar resized full-color (opcional, pequeño)
     imageio.imwrite(resized_path, resized_img)
 
-    # liberar
-    del F, F_new, spec_before, spec_after, spec_before_norm, spec_after_norm
-    del resized_channels, resized_img, img_proc
+    del F, F_new, resized_channels, resized_img, img_proc
     gc.collect()
 
-    return resized_path, spec_before_path, spec_after_path, comp_path, note, eff_scale
+    return resized_path, note, eff_scale
 
 
 def generate_fft_report_safe(input_folder, output_pdf, scales):
@@ -260,7 +187,7 @@ def generate_fft_report_safe(input_folder, output_pdf, scales):
         story.append(Spacer(1, 6))
 
         # mostrar la miniatura original
-        thumb_path = os.path.join(TMP_DIR, f"orig_{filename}.png")
+        thumb_path = os.path.join(TMP_DIR, f"{filename}_orig.png")
         # crear thumbnail seguro
         thumb_img, _ = safe_downsample_image_if_needed(img)
         imageio.imwrite(thumb_path, thumb_img.astype(np.uint8))
@@ -269,17 +196,59 @@ def generate_fft_report_safe(input_folder, output_pdf, scales):
 
         for scale in scales:
             basename_label = f"{os.path.splitext(filename)[0]}_scale{scale}"
-            resized_p, spec_b, spec_a, comp_p, note, eff_scale = fft_resize_and_save_plots(
+            resized_p, note, eff_scale = fft_resize_and_save(
                 img, scale, TMP_DIR, basename_label
             )
+
 
             story.append(Paragraph(f"<b>Scale pedido:</b> {scale} <b>· escala efectiva:</b> {eff_scale:.4f}", styles['Normal']))
             if note:
                 story.append(Paragraph(f"<i>{note}</i>", styles['Italic']))
             story.append(Spacer(1, 6))
 
+            # ========== BUILD FFT SPECTRA AND COMPARISON ==========
+
+            # Load resized (upscaled) image
+            resized_img = imageio.imread(resized_p).astype(np.float32)
+
+            # -------- Convert to grayscale for FFT --------
+            def to_gray(x):
+                if len(x.shape) == 3:
+                    return np.mean(x, axis=2)
+                return x
+
+            orig_gray = to_gray(img)
+            up_gray   = to_gray(resized_img)
+
+            # -------- FFT original ----------
+            F_orig = np.fft.fftshift(np.fft.fft2(orig_gray))
+            mag_orig = 20 * np.log(np.abs(F_orig) + 1)
+
+            spec_a = os.path.join(TMP_DIR, f"tmp {basename_label}.png")
+            plt.figure()
+            plt.imshow(mag_orig, cmap='gray')
+            plt.title("Original FFT Spectrum")
+            plt.axis('off')
+            plt.savefig(spec_a, bbox_inches='tight')
+            plt.close()
+
+            # -------- FFT upscaled ----------
+            F_up = np.fft.fftshift(np.fft.fft2(up_gray))
+            mag_up = 20 * np.log(np.abs(F_up) + 1)
+
+            spec_b = os.path.join(TMP_DIR, f"tmp {basename_label}.png")
+            plt.figure()
+            plt.imshow(mag_up, cmap='gray')
+            plt.title("Upscaled FFT Spectrum")
+            plt.axis('off')
+            plt.savefig(spec_b, bbox_inches='tight')
+            plt.close()
+
+
+
             # Insertar espectros y comparación al PDF
             try:
+                # Insert into PDF
                 spectra_table = Table([
                     [
                         Image(spec_b, width=230, height=230),
@@ -289,19 +258,14 @@ def generate_fft_report_safe(input_folder, output_pdf, scales):
                 story.append(spectra_table)
                 story.append(Spacer(1, 8))
 
-
-                story.append(Image(comp_p, width=400, height=300))
                 story.append(Spacer(1, 12))
+ 
             except Exception as e:
-                # si por alguna razón reportlab no puede insertar, anotamos el error
-                story.append(Paragraph(f"<i>Error insertando imágenes al PDF: {e}</i>", styles['Normal']))
+                story.append(
+                    Paragraph(f"<i>Error insertando imágenes al PDF: {e}</i>", styles['Normal'])
+                )
 
-            # borrar solo el resized full (si no quieres mantener) para ahorrar espacio en disco:
-            try:
-                if os.path.exists(resized_p):
-                    os.remove(resized_p)
-            except Exception:
-                pass
+          
 
             # colecta basura
             gc.collect()
@@ -311,10 +275,4 @@ def generate_fft_report_safe(input_folder, output_pdf, scales):
     # construir PDF
     doc.build(story)
     print("\n✅ PDF generado en:", output_pdf)
-
-    # limpiar temporales
-    try:
-        shutil.rmtree(TMP_DIR)
-    except Exception:
-        pass
 
